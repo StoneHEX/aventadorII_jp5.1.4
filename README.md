@@ -7,6 +7,6 @@ The devel machine must have a running http server.<br>
 The <b>op</b> script should be copied in devel machine's WWW_Root ( /var/www/html on Ubuntu machines ).<br>
 From the target issue <b>wget <your_server_ip>/op</b>. <br>
 On the target issue <b>./op</b>.<br><br>
-the <b>aventadorII_flash</b> flashes the newly created kernel and modules on the AventadorII Orin module.<br>
+The <b>aventadorII_flash</b> flashes the newly created kernel and modules on the AventadorII Orin module.<br>
 
 
