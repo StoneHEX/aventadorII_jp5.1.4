@@ -1,0 +1,86 @@
+#!/bin/sh
+if [ -z $JETPACK ]; then
+	echo "JETPACK not set"
+	exit
+fi
+CONFIG_FILE=aventadorII_jp5.1.4.config
+if [ ! -f ${CONFIG_FILE} ]; then
+	echo "PUBLIC_SOURCES=${JETPACK}/source/public" > ${CONFIG_FILE}
+	echo "KERNEL_SOURCES=${JETPACK}/source/public/kernel" >> ${CONFIG_FILE}
+	echo "TOOLCHAIN=`pwd`/l4t-gcc/bin" >> ${CONFIG_FILE}
+	echo "TOOLCHAIN_PREFIX=`pwd`/l4t-gcc/bin/aarch64-buildroot-linux-gnu-" >> ${CONFIG_FILE}
+	echo "TEGRA_KERNEL_OUT=${JETPACK}/source/kernel_build/jetson_linux_35.6.0_image" >> ${CONFIG_FILE}
+	echo "KERNEL_MODULES_OUT=${JETPACK}/source/kernel_build/jetson_linux_35.6.0_modules" >> ${CONFIG_FILE}
+	echo "INCLUDE1=\"${JETPACK}/source/public/hardware/nvidia/soc/tegra/kernel-include\"" >> ${CONFIG_FILE}
+	echo "INCLUDE2=\"${JETPACK}/source/public/hardware/nvidia/soc/t23x/kernel-include\"" >> ${CONFIG_FILE}
+	echo "INCLUDE3=\"${JETPACK}/source/public/hardware/nvidia/platform/tegra/common/kernel-dts\"" >> ${CONFIG_FILE}
+	echo "DTx=\"jetson-nau88x22-sth_audio\"" >> ${CONFIG_FILE}
+fi
+. ./${CONFIG_FILE}
+echo ${PUBLIC_SOURCES}
+echo ${KERNEL_SOURCES}
+echo ${TOOLCHAIN}
+echo ${TOOLCHAIN_PREFIX}
+echo ${TEGRA_KERNEL_OUT}
+echo ${KERNEL_MODULES_OUT}
+echo ${INCLUDE1}
+echo ${INCLUDE2}
+echo ${INCLUDE3}
+echo ${DTx}
+HERE=`pwd`
+
+if [ ! -d ${TOOLCHAIN} ]; then
+	echo ${TOOLCHAIN}
+	mkdir l4t-gcc
+	wget https://developer.nvidia.com/embedded/jetson-linux/bootlin-toolchain-gcc-93 -O l4t-gcc/l4t-gcc.tar.gz
+	cd l4t-gcc
+	tar zxf l4t-gcc.tar.gz
+	rm l4t-gcc.tar.gz
+	cd ${HERE}
+fi
+
+if ! [ -d ${PUBLIC_SOURCES} ]; then 
+	if [ ! -f public_sources.tbz2 ]; then
+		wget https://developer.nvidia.com/downloads/embedded/l4t/r35_release_v6.0/sources/public_sources.tbz2
+	fi
+	echo "Extracting sources"
+	tar -jxf public_sources.tbz2
+	mv Linux_for_Tegra/source/* ../source/.
+	cd ${PUBLIC_SOURCES}
+	tar -jxf kernel_src.tbz2
+	cd ${HERE}
+fi
+
+if ! [ -d ${PUBLIC_SOURCES}/kernel ]; then 
+	echo "Extracting kernel"
+	cd ${PUBLIC_SOURCES}
+	tar –xjf kernel_src.tbz2
+	cd ${HERE}
+fi
+
+mkdir -p ${TEGRA_KERNEL_OUT}
+mkdir -p ${KERNEL_MODULES_OUT}
+
+cp nau8822_defconfig ${KERNEL_SOURCES}/kernel-5.10/arch/arm64/configs/defconfig
+
+make -C ${KERNEL_SOURCES}/kernel-5.10/ ARCH=arm64 O=${TEGRA_KERNEL_OUT} LOCALVERSION=-tegra CROSS_COMPILE=${TOOLCHAIN_PREFIX} tegra_defconfig
+make -C ${KERNEL_SOURCES}/kernel-5.10/ ARCH=arm64 O=${TEGRA_KERNEL_OUT} LOCALVERSION=-tegra CROSS_COMPILE=${TOOLCHAIN_PREFIX} -j$(nproc) Image
+make -C ${KERNEL_SOURCES}/kernel-5.10/ ARCH=arm64 O=${TEGRA_KERNEL_OUT} LOCALVERSION=-tegra CROSS_COMPILE=${TOOLCHAIN_PREFIX} -j$(nproc) dtbs
+make -C ${KERNEL_SOURCES}/kernel-5.10/ ARCH=arm64 O=${TEGRA_KERNEL_OUT} LOCALVERSION=-tegra CROSS_COMPILE=${TOOLCHAIN_PREFIX} -j$(nproc) modules
+make -C ${KERNEL_SOURCES}/kernel-5.10/ ARCH=arm64 O=${TEGRA_KERNEL_OUT} LOCALVERSION=-tegra INSTALL_MOD_PATH=${KERNEL_MODULES_OUT} modules_install
+
+rm ${DTx}.dtbo
+cpp -nostdinc -I ${INCLUDE1} -I ${INCLUDE2} -I ${INCLUDE3} -undef -x assembler-with-cpp ${DTx}.dts tmp.dts
+echo "Pre processed"
+dtc -O dtb -o ${JETPACK}/kernel/dtb/${DTx}.dtbo -@ tmp.dts
+sudo cp ${HERE}/${DTx}.dtbo /var/www/html/.
+
+cp -rfv ${TEGRA_KERNEL_OUT}/arch/arm64/boot/Image ${JETPACK}/kernel/
+cp -rfv ${TEGRA_KERNEL_OUT}/arch/arm64/boot/dts/nvidia/* ${JETPACK}/kernel/dtb/
+
+sudo rsync -azPu ${KERNEL_MODULES_OUT}/lib/modules/5.10.216-tegra ${JETPACK}/rootfs/lib/modules/
+
+cd ${JETPACK}
+sudo ./apply_binaries.sh
+cd ${HERE}
+
